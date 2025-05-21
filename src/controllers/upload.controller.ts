@@ -4,6 +4,14 @@ import { google } from "googleapis";
 import fs from "fs";
 import path from "path";
 
+// Interface cho file đã upload
+interface UploadedFile {
+  fileId: string | null | undefined;
+  fileName: string | null | undefined;
+  webViewLink: string | null | undefined;
+  webContentLink: string | null | undefined;
+}
+
 // Cấu hình Multer: Lưu file tạm vào thư mục "uploads/"
 const upload: Multer = multer({ dest: "uploads/" });
 
@@ -43,7 +51,7 @@ export const uploadFiles = async (
     }
 
     // Mảng chứa thông tin của tất cả các file đã upload
-    const uploadedFiles = [];
+    const uploadedFiles: UploadedFile[] = [];
 
     for (const file of files) {
       const fileMetadata = {
