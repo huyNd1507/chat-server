@@ -488,4 +488,70 @@ export class ConversationController {
       res.status(500).json({ message: "Error removing participants", error });
     }
   }
+
+  // Rời khỏi cuộc trò chuyện
+  async leaveConversation(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      if (!req.user?._id) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+
+      const { conversationId } = req.params;
+
+      const conversation = await Conversation.findOne({
+        _id: conversationId,
+        "participants.user": req.user._id,
+        isDeleted: false,
+      });
+
+      if (!conversation) {
+        res.status(404).json({ message: "Conversation not found" });
+        return;
+      }
+
+      // Kiểm tra xem có phải là cuộc trò chuyện nhóm không
+      if (conversation.type === "direct") {
+        res.status(400).json({
+          message: "Cannot leave direct conversation",
+        });
+        return;
+      }
+
+      // Kiểm tra xem có phải là chủ sở hữu không
+      const participant = conversation.participants.find(
+        (p) => p.user.toString() === req.user!._id.toString()
+      );
+
+      if (participant?.role === "owner") {
+        res.status(400).json({
+          message:
+            "Owner cannot leave the conversation. Please transfer ownership or delete the conversation instead.",
+        });
+        return;
+      }
+
+      // Xóa người dùng khỏi danh sách tham gia
+      conversation.participants = conversation.participants.filter(
+        (p) => p.user.toString() !== req.user!._id.toString()
+      );
+
+      // Cập nhật số lượng thành viên
+      conversation.metadata.memberCount = conversation.participants.length;
+
+      // Xóa khỏi danh sách admin nếu có
+      conversation.admins = conversation.admins.filter(
+        (a) => a.user.toString() !== req.user!._id.toString()
+      );
+
+      await conversation.save();
+
+      res.json({ message: "Successfully left the conversation" });
+    } catch (error) {
+      res.status(500).json({ message: "Error leaving conversation", error });
+    }
+  }
 }

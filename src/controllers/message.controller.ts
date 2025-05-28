@@ -162,22 +162,26 @@ export class MessageController {
         (read) => read.user.toString() === userId.toString()
       );
 
-      if (!alreadyRead) {
-        message.readBy.push({
-          user: userId,
-          readAt: new Date(),
-        });
-        await message.save();
-
-        // Emit socket event
-        req.app
-          .get("io")
-          .to(message.conversation.toString())
-          .emit("message_read", {
-            messageId,
-            userId,
-          });
+      if (alreadyRead) {
+        res.status(400).json({ message: "You have already read this message" });
+        return;
       }
+
+      // Thêm người dùng vào danh sách đã đọc
+      message.readBy.push({
+        user: userId,
+        readAt: new Date(),
+      });
+      await message.save();
+
+      // Emit socket event
+      req.app
+        .get("io")
+        .to(message.conversation.toString())
+        .emit("message_read", {
+          messageId,
+          userId,
+        });
 
       res.json({ message: "Message marked as read" });
     } catch (error) {

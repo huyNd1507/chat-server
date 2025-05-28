@@ -646,4 +646,47 @@ router.delete(
   conversationController.removeParticipants
 );
 
+/**
+ * @swagger
+ * /api/conversation/{conversationId}/leave:
+ *   post:
+ *     tags:
+ *       - Conversations
+ *     summary: Leave conversation
+ *     description: Leave a group conversation (owner cannot leave, must transfer ownership or delete instead)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID of the conversation
+ *     responses:
+ *       200:
+ *         description: Successfully left the conversation
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Successfully left the conversation
+ *       400:
+ *         description: Cannot leave direct conversation or owner cannot leave
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Conversation not found
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/:conversationId/leave",
+  verifyToken,
+  conversationController.leaveConversation
+);
+
 export default router;
