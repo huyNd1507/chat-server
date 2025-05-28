@@ -301,4 +301,191 @@ export class ConversationController {
       res.status(500).json({ message: "Error deleting conversation", error });
     }
   }
+
+  // Thêm người dùng vào cuộc trò chuyện nhóm
+  async addParticipants(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      if (!req.user?._id) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+
+      const { conversationId } = req.params;
+      const { participants } = req.body;
+
+      const conversation = await Conversation.findOne({
+        _id: conversationId,
+        "participants.user": req.user._id,
+        isDeleted: false,
+      });
+
+      if (!conversation) {
+        res.status(404).json({ message: "Conversation not found" });
+        return;
+      }
+
+      // Kiểm tra xem có phải là cuộc trò chuyện nhóm không
+      if (conversation.type === "direct") {
+        res
+          .status(400)
+          .json({ message: "Cannot add participants to direct conversation" });
+        return;
+      }
+
+      // Kiểm tra quyền thêm người dùng
+      const currentParticipant = conversation.participants.find(
+        (p) => p.user.toString() === req.user!._id.toString()
+      );
+
+      if (
+        !currentParticipant ||
+        !["admin", "owner"].includes(currentParticipant.role)
+      ) {
+        res.status(403).json({ message: "Not authorized to add participants" });
+        return;
+      }
+
+      // Kiểm tra người dùng có tồn tại không
+      const participantIds = participants.map(
+        (p: string) => new mongoose.Types.ObjectId(p)
+      );
+      const existingUsers = await UserModel.find({
+        _id: { $in: participantIds },
+      });
+
+      if (existingUsers.length !== participantIds.length) {
+        res
+          .status(400)
+          .json({ message: "One or more participants do not exist" });
+        return;
+      }
+
+      // Kiểm tra người dùng đã tham gia chưa
+      const existingParticipants = conversation.participants.filter((p) =>
+        participantIds.some((id) => id.toString() === p.user.toString())
+      );
+
+      if (existingParticipants.length > 0) {
+        res.status(400).json({
+          message: "One or more participants already in conversation",
+        });
+        return;
+      }
+
+      // Thêm người dùng mới
+      const newParticipants = participantIds.map((userId) => ({
+        user: userId,
+        role: "member",
+        joinedAt: new Date(),
+      }));
+
+      conversation.participants.push(...newParticipants);
+      conversation.metadata.memberCount = conversation.participants.length;
+
+      await conversation.save();
+      await conversation.populate(
+        "participants.user",
+        "username avatar status"
+      );
+
+      res.json(conversation);
+    } catch (error) {
+      res.status(500).json({ message: "Error adding participants", error });
+    }
+  }
+
+  // Xóa người dùng khỏi cuộc trò chuyện nhóm
+  async removeParticipants(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      if (!req.user?._id) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+
+      const { conversationId } = req.params;
+      const { participants } = req.body;
+
+      const conversation = await Conversation.findOne({
+        _id: conversationId,
+        "participants.user": req.user._id,
+        isDeleted: false,
+      });
+
+      if (!conversation) {
+        res.status(404).json({ message: "Conversation not found" });
+        return;
+      }
+
+      // Kiểm tra xem có phải là cuộc trò chuyện nhóm không
+      if (conversation.type === "direct") {
+        res.status(400).json({
+          message: "Cannot remove participants from direct conversation",
+        });
+        return;
+      }
+
+      // Kiểm tra quyền xóa người dùng
+      const currentParticipant = conversation.participants.find(
+        (p) => p.user.toString() === req.user!._id.toString()
+      );
+
+      if (
+        !currentParticipant ||
+        !["admin", "owner"].includes(currentParticipant.role)
+      ) {
+        res
+          .status(403)
+          .json({ message: "Not authorized to remove participants" });
+        return;
+      }
+
+      // Chuyển đổi ID người dùng thành ObjectId
+      const participantIds = participants.map(
+        (p: string) => new mongoose.Types.ObjectId(p)
+      );
+
+      // Kiểm tra xem có cố gắng xóa chủ sở hữu không
+      const owner = conversation.participants.find(
+        (p) =>
+          p.role === "owner" &&
+          participantIds.some((id) => id.toString() === p.user.toString())
+      );
+
+      if (owner) {
+        res
+          .status(400)
+          .json({ message: "Cannot remove the owner from conversation" });
+        return;
+      }
+
+      // Xóa người dùng
+      conversation.participants = conversation.participants.filter(
+        (p) => !participantIds.some((id) => id.toString() === p.user.toString())
+      );
+
+      // Cập nhật số lượng thành viên
+      conversation.metadata.memberCount = conversation.participants.length;
+
+      // Xóa khỏi danh sách admin nếu có
+      conversation.admins = conversation.admins.filter(
+        (a) => !participantIds.some((id) => id.toString() === a.user.toString())
+      );
+
+      await conversation.save();
+      await conversation.populate(
+        "participants.user",
+        "username avatar status"
+      );
+
+      res.json(conversation);
+    } catch (error) {
+      res.status(500).json({ message: "Error removing participants", error });
+    }
+  }
 }

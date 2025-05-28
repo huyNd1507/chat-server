@@ -486,4 +486,164 @@ router.delete(
   conversationController.deleteConversation
 );
 
+/**
+ * @swagger
+ * /api/conversation/{conversationId}/participants:
+ *   post:
+ *     tags:
+ *       - Conversations
+ *     summary: Add participants to conversation
+ *     description: Add new participants to a group conversation (only admin/owner can add)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID of the conversation
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - participants
+ *             properties:
+ *               participants:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of user IDs to add to the conversation
+ *     responses:
+ *       200:
+ *         description: Participants added successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 _id:
+ *                   type: string
+ *                 participants:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       user:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                           username:
+ *                             type: string
+ *                           avatar:
+ *                             type: string
+ *                           status:
+ *                             type: string
+ *                       role:
+ *                         type: string
+ *                         enum: [member, admin, moderator, owner]
+ *                       joinedAt:
+ *                         type: string
+ *                         format: date-time
+ *       400:
+ *         description: Invalid request or participants already in conversation
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Not authorized to add participants
+ *       404:
+ *         description: Conversation not found
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/:conversationId/participants",
+  verifyToken,
+  conversationController.addParticipants
+);
+
+/**
+ * @swagger
+ * /api/conversation/{conversationId}/participants:
+ *   delete:
+ *     tags:
+ *       - Conversations
+ *     summary: Remove participants from conversation
+ *     description: Remove participants from a group conversation (only admin/owner can remove)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID of the conversation
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - participants
+ *             properties:
+ *               participants:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of user IDs to remove from the conversation
+ *     responses:
+ *       200:
+ *         description: Participants removed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 _id:
+ *                   type: string
+ *                 participants:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       user:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                           username:
+ *                             type: string
+ *                           avatar:
+ *                             type: string
+ *                           status:
+ *                             type: string
+ *                       role:
+ *                         type: string
+ *                         enum: [member, admin, moderator, owner]
+ *                       joinedAt:
+ *                         type: string
+ *                         format: date-time
+ *       400:
+ *         description: Invalid request or cannot remove owner
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Not authorized to remove participants
+ *       404:
+ *         description: Conversation not found
+ *       500:
+ *         description: Server error
+ */
+router.delete(
+  "/:conversationId/participants",
+  verifyToken,
+  conversationController.removeParticipants
+);
+
 export default router;

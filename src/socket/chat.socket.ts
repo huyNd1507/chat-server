@@ -215,15 +215,29 @@ class ChatSocket {
         conversation: conversationId,
         sender: userId,
         type,
-        content,
+        content: {
+          text: content,
+          poll: {
+            options: [],
+            isMultipleChoice: false,
+            isAnonymous: false,
+          },
+          location: {
+            type: "Point",
+            coordinates: [],
+          },
+        },
         status: "sent",
         readBy: [{ user: userId, readAt: new Date() }],
       });
 
       await message.save();
 
+      // Populate sender information
+      await message.populate("sender", "username avatar");
+
       // Cập nhật lastMessage trong conversation
-      await Conversation.findByIdAndUpdate(
+      const conversation = await Conversation.findByIdAndUpdate(
         conversationId,
         {
           lastMessage: message._id,
@@ -233,31 +247,48 @@ class ChatSocket {
         },
         {
           arrayFilters: [{ "elem.user": { $ne: userId } }],
+          new: true,
         }
-      );
+      )
+        .populate("lastMessage")
+        .populate("participants.user", "username avatar status");
 
       // Gửi tin nhắn đến tất cả người dùng trong cuộc trò chuyện
-      this.io.to(`conversation:${conversationId}`).emit("message:new", {
-        message,
-        conversationId,
-      });
-
-      // Gửi thông báo đến người nhận nếu họ không online
-      const conversation = await Conversation.findById(conversationId);
       if (conversation) {
         conversation.participants.forEach((participant: any) => {
-          if (participant.user.toString() !== userId) {
-            const recipientSocket = this.connectedUsers.get(
-              participant.user.toString()
-            );
-            if (!recipientSocket) {
-              // Gửi thông báo push ở đây
+          const participantId = participant.user._id.toString();
+          if (participantId !== userId) {
+            const participantSocket = this.connectedUsers.get(participantId);
+            if (participantSocket) {
+              // Gửi tin nhắn trực tiếp đến socket của người nhận
+              this.io.to(participantSocket.socketId).emit("message:new", {
+                message,
+                conversationId,
+              });
+
+              // Gửi sự kiện cập nhật conversation
+              this.io
+                .to(participantSocket.socketId)
+                .emit("conversation:updated", {
+                  conversation,
+                });
             }
           }
         });
       }
+
+      // Gửi tin nhắn cho người gửi
+      socket.emit("message:new", {
+        message,
+        conversationId,
+      });
+
+      // Gửi sự kiện cập nhật conversation cho người gửi
+      socket.emit("conversation:updated", {
+        conversation,
+      });
     } catch (error) {
-      console.error("Error sending message:", error);
+      console.error("Error handling message send:", error);
       socket.emit("error", { message: "Failed to send message" });
     }
   }
@@ -310,7 +341,8 @@ class ChatSocket {
 
   private handleTypingStart(socket: any, data: { conversationId: string }) {
     const userId = socket.data.userId;
-    socket.to(`conversation:${data.conversationId}`).emit("typing:start", {
+    // Gửi sự kiện typing cho tất cả người dùng, không chỉ trong cùng cuộc trò chuyện
+    this.io.emit("typing:start", {
       userId,
       conversationId: data.conversationId,
     });
@@ -318,7 +350,8 @@ class ChatSocket {
 
   private handleTypingStop(socket: any, data: { conversationId: string }) {
     const userId = socket.data.userId;
-    socket.to(`conversation:${data.conversationId}`).emit("typing:stop", {
+    // Gửi sự kiện typing cho tất cả người dùng, không chỉ trong cùng cuộc trò chuyện
+    this.io.emit("typing:stop", {
       userId,
       conversationId: data.conversationId,
     });

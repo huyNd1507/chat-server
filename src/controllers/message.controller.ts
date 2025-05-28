@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { Message } from "../models/message.models";
+import { Message, IMessage } from "../models/message.models";
 import { Conversation } from "../models/conversation.models";
 import mongoose from "mongoose";
 import { IUser } from "../models/users.models";
@@ -23,8 +23,12 @@ export class MessageController {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
-        .populate("sender", "username avatar")
-        .populate("replyTo");
+        .populate("sender", "username avatar fullname")
+        .populate("replyTo")
+        .populate({
+          path: "readBy.user",
+          select: "username avatar fullname",
+        });
 
       const total = await Message.countDocuments({
         conversation: conversationId,
@@ -208,6 +212,22 @@ export class MessageController {
       message.deletedAt = new Date();
       message.deletedBy = userId;
       await message.save();
+
+      // Kiểm tra và cập nhật lastMessage của conversation
+      const conversation = await Conversation.findById(message.conversation);
+      if (conversation && conversation.lastMessage?.toString() === messageId) {
+        // Tìm tin nhắn cuối cùng chưa bị xóa
+        const lastMessage = (await Message.findOne({
+          conversation: message.conversation,
+          isDeleted: false,
+        })
+          .sort({ createdAt: -1 })
+          .lean()) as (IMessage & { _id: mongoose.Types.ObjectId }) | null;
+
+        // Cập nhật lastMessage của conversation
+        conversation.lastMessage = lastMessage ? lastMessage._id : undefined;
+        await conversation.save();
+      }
 
       // Emit socket event
       try {
