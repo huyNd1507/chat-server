@@ -1,17 +1,13 @@
 import dotenv from "dotenv";
 import path from "path";
 
-// Load environment variables from .env file
-// const result = dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 const envPath = path.resolve(process.cwd(), ".env");
 const result = dotenv.config({ path: envPath });
-// console.log("result:", result);
 if (result.error) {
   console.error("Error loading .env file:", result.error);
   process.exit(1);
 }
 
-// Validate required environment variables
 const requiredEnvVars = ["PASSJWT", "SESSION_SECRET", "DATABASE_URL"];
 const missingEnvVars = requiredEnvVars.filter((envVar) => !process.env[envVar]);
 
@@ -23,7 +19,6 @@ if (missingEnvVars.length > 0) {
   process.exit(1);
 }
 
-// Export environment variables
 export const env = {
   NODE_ENV: process.env.NODE_ENV || "development",
   PORT: process.env.PORT || 5000,
