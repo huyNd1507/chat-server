@@ -1,14 +1,12 @@
 import { createClient } from "redis";
-import dotenv from "dotenv";
+import { env } from "../config/env";
 
-dotenv.config();
-
-if (!process.env.REDIS_URL) {
+if (!env.REDIS_URL) {
   console.error("REDIS_URL is not defined in environment variables");
 }
 
 const redisClient = createClient({
-  url: process.env.REDIS_URL,
+  url: env.REDIS_URL,
   socket: {
     reconnectStrategy: (retries) => {
       console.log(`Redis reconnecting... Attempt ${retries}`);
@@ -19,17 +17,17 @@ const redisClient = createClient({
 
 redisClient.on("error", (err) => {
   console.error("Redis Client Error:", err);
-  console.log("Current REDIS_URL:", process.env.REDIS_URL);
+  console.log("Current REDIS_URL:", env.REDIS_URL);
 });
 
 redisClient.on("connect", () => {
   console.log("Redis Client Connected Successfully");
-  console.log("Connected to Redis at:", process.env.REDIS_URL);
+  console.log("Connected to Redis at:", env.REDIS_URL);
 });
 
 export const connectRedis = async () => {
   try {
-    if (!process.env.REDIS_URL) {
+    if (!env.REDIS_URL) {
       throw new Error("REDIS_URL is not defined");
     }
     await redisClient.connect();

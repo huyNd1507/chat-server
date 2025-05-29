@@ -1,8 +1,7 @@
 import swaggerJsDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
 import { Application } from "express";
-import dotenv from "dotenv";
-dotenv.config();
+import { env } from "../config/env";
 
 const swaggerOptions = {
   definition: {
@@ -14,10 +13,10 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: process.env.SWAGGER_URL_DEV,
+        url: env.SWAGGER_URL_DEV,
       },
       {
-        url: process.env.SWAGGER_URL_TEST,
+        url: env.SWAGGER_URL_TEST,
       },
     ],
     components: {
