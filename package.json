@@ -6,9 +6,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc --build",
     "start": "node dist/index.js",
-    "dev": "nodemon --watch src --exec ts-node-dev src/index.ts",
-    "clean": "rimraf dist",
-    "prebuild": "npm run clean"
+    "dev": "nodemon --watch src --exec ts-node-dev src/index.ts"
   },
   "author": "",
   "license": "ISC",
@@ -55,7 +53,6 @@
     "@types/passport-google-oauth20": "^2.0.16",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.7",
-    "rimraf": "^6.0.1",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.7.3"
   }
