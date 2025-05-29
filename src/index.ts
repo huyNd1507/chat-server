@@ -7,6 +7,7 @@ import passport from "passport";
 import session from "express-session";
 import { createServer } from "http";
 import { initializeSocket } from "./socket";
+import { connectRedis } from "./config/redis";
 
 // Routes imports
 import authRoutes from "./routers/auth.routes";
@@ -22,6 +23,9 @@ const app: Application = express();
 
 // Create HTTP server
 const server = createServer(app);
+
+// Initialize Redis
+connectRedis().catch(console.error);
 
 // Initialize Socket.IO
 initializeSocket(server);

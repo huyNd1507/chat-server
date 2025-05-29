@@ -7,3 +7,20 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=512"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: chat-app-redis
+          property: connectionString
+    healthCheckPath: /
+    autoDeploy: true
+    plan: free
+    disk:
+      name: tmp
+      mountPath: /tmp
+      sizeGB: 1
+    envVars:
+      - key: REDIS_TLS
+        value: "true"
