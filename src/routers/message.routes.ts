@@ -448,4 +448,66 @@ router.delete(
   messageController.removeReaction
 );
 
+/**
+ * @swagger
+ * /api/messages/mark-multiple-read:
+ *   post:
+ *     tags:
+ *       - Messages
+ *     summary: Mark multiple messages as read
+ *     description: Mark multiple messages as read by the current user in a single operation
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - messageIds
+ *               - conversationId
+ *             properties:
+ *               messageIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of message IDs to mark as read
+ *               conversationId:
+ *                 type: string
+ *                 description: ID of the conversation containing the messages
+ *     responses:
+ *       200:
+ *         description: Messages marked as read successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Messages marked as read
+ *                 count:
+ *                   type: integer
+ *                   description: Number of messages marked as read
+ *                 messageIds:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: IDs of messages that were marked as read
+ *       400:
+ *         description: Invalid request parameters
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Conversation not found or user not a participant
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/mark-multiple-read",
+  verifyToken,
+  messageController.markMultipleAsRead
+);
+
 export default router;

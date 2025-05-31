@@ -400,5 +400,6 @@ MessageSchema.index({ "metadata.location": "2dsphere" });
 MessageSchema.index({ "content.poll.endTime": 1 });
 MessageSchema.index({ scheduledFor: 1 });
 MessageSchema.index({ expiresAt: 1 });
+MessageSchema.index({ "readBy.user": 1 }, { unique: true, sparse: true });
 
 export const Message = mongoose.model<IMessage>("Message", MessageSchema);

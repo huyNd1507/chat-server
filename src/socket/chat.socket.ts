@@ -228,10 +228,20 @@ class ChatSocket {
           },
         },
         status: "sent",
-        readBy: [{ user: userId, readAt: new Date() }],
+        readBy: [], // Không thêm người gửi vào danh sách readBy ngay từ đầu
       });
 
       await message.save();
+
+      // Thêm người gửi vào danh sách readBy
+      await Message.findByIdAndUpdate(message._id, {
+        $addToSet: {
+          readBy: {
+            user: userId,
+            readAt: new Date(),
+          },
+        },
+      });
 
       // Populate sender information
       await message.populate("sender", "username avatar");
@@ -303,6 +313,23 @@ class ChatSocket {
     try {
       const { conversationId, messageId } = data;
       const userId = socket.data.userId;
+
+      // Kiểm tra xem tin nhắn có tồn tại không và người dùng đã đọc chưa
+      const existingMessage = await Message.findById(messageId);
+
+      if (!existingMessage) {
+        return socket.emit("error", { message: "Message not found" });
+      }
+
+      // Kiểm tra xem người dùng đã đọc tin nhắn này chưa
+      const alreadyRead = existingMessage.readBy.some(
+        (readInfo: any) => readInfo.user.toString() === userId
+      );
+
+      // Nếu đã đọc rồi thì không cần cập nhật nữa
+      if (alreadyRead) {
+        return;
+      }
 
       // Cập nhật trạng thái đã đọc
       await Message.findByIdAndUpdate(messageId, {

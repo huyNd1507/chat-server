@@ -57,13 +57,6 @@ export class MessageController {
       const { conversationId, content, type = "text" } = req.body;
       const senderId = req.user._id;
 
-      console.log("Sending message with data:", {
-        conversationId,
-        content,
-        type,
-        senderId,
-      });
-
       // Kiểm tra xem người dùng có trong cuộc trò chuyện không
       const conversation = await Conversation.findOne({
         _id: conversationId,
@@ -71,12 +64,9 @@ export class MessageController {
       });
 
       if (!conversation) {
-        console.log("Conversation not found:", conversationId);
         res.status(404).json({ message: "Conversation not found" });
         return;
       }
-
-      console.log("Found conversation:", conversation._id);
 
       // Format content based on message type
       let formattedContent: any = {};
@@ -94,8 +84,6 @@ export class MessageController {
         formattedContent = { poll: content };
       }
 
-      console.log("Formatted content:", formattedContent);
-
       const message = new Message({
         conversation: conversationId,
         sender: senderId,
@@ -103,26 +91,20 @@ export class MessageController {
         content: formattedContent,
       });
 
-      console.log("Created message object:", message);
-
       await message.save();
-      console.log("Message saved successfully");
 
       // Cập nhật tin nhắn cuối cùng của cuộc trò chuyện
       conversation.lastMessage = message._id as mongoose.Types.ObjectId;
       await conversation.save();
-      console.log("Updated conversation last message");
 
       // Populate thông tin người gửi
       await message.populate("sender", "username avatar");
-      console.log("Populated sender info");
 
       // Emit socket event
       try {
         const io = req.app.get("io");
         if (io) {
           io.to(conversationId).emit("new_message", message);
-          console.log("Emitted socket event");
         } else {
           console.log("Socket.IO not initialized");
         }
@@ -132,7 +114,6 @@ export class MessageController {
 
       res.status(201).json(message);
     } catch (error) {
-      console.error("Error sending message:", error);
       res.status(500).json({
         message: "Error sending message",
         error: error instanceof Error ? error.message : error,
@@ -168,11 +149,17 @@ export class MessageController {
       }
 
       // Thêm người dùng vào danh sách đã đọc
-      message.readBy.push({
-        user: userId,
-        readAt: new Date(),
-      });
-      await message.save();
+      await Message.updateOne(
+        { _id: messageId },
+        {
+          $addToSet: {
+            readBy: {
+              user: userId,
+              readAt: new Date(),
+            },
+          },
+        }
+      );
 
       // Emit socket event
       req.app
@@ -395,6 +382,138 @@ export class MessageController {
       res.json(message);
     } catch (error) {
       res.status(500).json({ message: "Error removing reaction", error });
+    }
+  }
+
+  // Đánh dấu nhiều tin nhắn đã đọc cùng một lúc
+  async markMultipleAsRead(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user?._id) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+
+      const { messageIds, conversationId } = req.body;
+      const userId = req.user._id;
+
+      // Validate input
+      if (!Array.isArray(messageIds) || messageIds.length === 0) {
+        res
+          .status(400)
+          .json({ message: "Invalid messageIds. Must be a non-empty array." });
+        return;
+      }
+
+      if (!conversationId) {
+        res.status(400).json({ message: "conversationId is required" });
+        return;
+      }
+
+      // Verify user is part of the conversation
+      const conversation = await Conversation.findOne({
+        _id: conversationId,
+        "participants.user": userId,
+      });
+
+      if (!conversation) {
+        res.status(404).json({
+          message: "Conversation not found or you are not a participant",
+        });
+        return;
+      }
+
+      // Find all messages that match the IDs and haven't been read by this user
+      const messages = await Message.find({
+        _id: { $in: messageIds },
+        conversation: conversationId,
+        "readBy.user": { $ne: userId },
+      });
+
+      if (messages.length === 0) {
+        res.status(200).json({
+          message: "No new messages to mark as read",
+          updatedMessageIds: [],
+        });
+        return;
+      }
+
+      // Lấy danh sách ID tin nhắn được cập nhật
+      const updatedMessageIds = messages.map((message) => message._id);
+
+      // Sử dụng $addToSet thay vì $push để đảm bảo không có trùng lặp
+      const updateOperations = messages.map((message) => ({
+        updateOne: {
+          filter: { _id: message._id },
+          update: {
+            $addToSet: {
+              readBy: {
+                user: userId,
+                readAt: new Date(),
+              },
+            },
+          },
+        },
+      }));
+
+      const result = await Message.bulkWrite(updateOperations);
+
+      // Update the lastReadMessage in the conversation for this user
+      // Find the most recent message ID from the marked messages
+      const messageIdList = messages.map((msg) => msg._id);
+      const latestMessage = await Message.findOne({
+        _id: { $in: messageIdList },
+      }).sort({ createdAt: -1 });
+
+      if (latestMessage) {
+        await Conversation.updateOne(
+          {
+            _id: conversationId,
+            "participants.user": userId,
+          },
+          {
+            $set: { "participants.$.lastReadMessage": latestMessage._id },
+          }
+        );
+      }
+
+      // Cập nhật unreadCount trong conversation
+      await Conversation.updateOne(
+        {
+          _id: conversationId,
+          "unreadCount.user": userId,
+        },
+        {
+          $set: { "unreadCount.$.count": 0 },
+        }
+      );
+
+      // Thông báo cho tất cả người dùng trong cuộc trò chuyện
+      try {
+        const io = req.app.get("io");
+        if (io) {
+          io.to(`conversation:${conversationId}`).emit("messages_read", {
+            messageIds: updatedMessageIds,
+            userId,
+            conversationId,
+          });
+        } else {
+          console.log("Socket.IO not initialized");
+        }
+      } catch (socketError) {
+        console.error("Socket error:", socketError);
+        // Không throw error vì tin nhắn đã được đánh dấu đã đọc thành công
+      }
+
+      res.status(200).json({
+        message: "Messages marked as read successfully",
+        updatedCount: result.modifiedCount,
+        updatedMessageIds,
+      });
+    } catch (error) {
+      console.error("Error marking messages as read:", error);
+      res
+        .status(500)
+        .json({ message: "Error marking messages as read", error });
     }
   }
 }
