@@ -91,6 +91,7 @@ export class MessageController {
         content: formattedContent,
       });
 
+      console.log("Sending message=======:", message);
       await message.save();
 
       // Cập nhật tin nhắn cuối cùng của cuộc trò chuyện

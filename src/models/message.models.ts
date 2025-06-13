@@ -20,7 +20,7 @@ export interface IMessage extends Document {
     | "reply"
     | "story"
     | "live"
-    | "call"; // Loại tin nhắn
+    | "call";
   content: {
     // Nội dung tin nhắn
     text?: string; // Văn bản

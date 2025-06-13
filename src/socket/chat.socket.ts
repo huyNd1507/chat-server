@@ -210,26 +210,32 @@ class ChatSocket {
       const { conversationId, content, type } = data;
       const userId = socket.data.userId;
 
-      // Tạo tin nhắn mới
+      let formattedContent: any = {};
+
+      if (type === "text") {
+        formattedContent.text = content;
+      } else if (type === "file" || type === "image" || type === "video") {
+        formattedContent.media = content.media;
+      } else if (type === "location") {
+        formattedContent.location = content;
+      } else if (type === "poll") {
+        formattedContent.poll = content;
+      } else if (type === "contact") {
+        formattedContent.contact = content;
+      } else if (type === "call") {
+        formattedContent.call = content;
+      }
+
       const message = new Message({
         conversation: conversationId,
         sender: userId,
         type,
-        content: {
-          text: content,
-          poll: {
-            options: [],
-            isMultipleChoice: false,
-            isAnonymous: false,
-          },
-          location: {
-            type: "Point",
-            coordinates: [],
-          },
-        },
+        content: formattedContent,
         status: "sent",
-        readBy: [], // Không thêm người gửi vào danh sách readBy ngay từ đầu
+        readBy: [],
       });
+
+      console.log("Sending message ====", message);
 
       await message.save();
 
