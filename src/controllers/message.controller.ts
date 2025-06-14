@@ -2,14 +2,8 @@ import { Request, Response } from "express";
 import { Message, IMessage } from "../models/message.models";
 import { Conversation } from "../models/conversation.models";
 import mongoose from "mongoose";
-import { IUser } from "../models/users.models";
-
-interface AuthenticatedRequest extends Request {
-  user?: IUser & { _id: mongoose.Types.ObjectId };
-}
 
 export class MessageController {
-  // Lấy danh sách tin nhắn của một cuộc trò chuyện
   async getMessages(req: Request, res: Response): Promise<void> {
     try {
       const { conversationId } = req.params;
@@ -46,7 +40,6 @@ export class MessageController {
     }
   }
 
-  // Gửi tin nhắn mới
   async sendMessage(req: Request, res: Response): Promise<void> {
     try {
       if (!req.user?._id) {
@@ -57,7 +50,6 @@ export class MessageController {
       const { conversationId, content, type = "text" } = req.body;
       const senderId = req.user._id;
 
-      // Kiểm tra xem người dùng có trong cuộc trò chuyện không
       const conversation = await Conversation.findOne({
         _id: conversationId,
         "participants.user": senderId,
@@ -68,7 +60,6 @@ export class MessageController {
         return;
       }
 
-      // Format content based on message type
       let formattedContent: any = {};
       if (type === "text") {
         formattedContent = { text: content };
@@ -91,17 +82,12 @@ export class MessageController {
         content: formattedContent,
       });
 
-      console.log("Sending message=======:", message);
       await message.save();
 
-      // Cập nhật tin nhắn cuối cùng của cuộc trò chuyện
       conversation.lastMessage = message._id as mongoose.Types.ObjectId;
       await conversation.save();
-
-      // Populate thông tin người gửi
       await message.populate("sender", "username avatar");
 
-      // Emit socket event
       try {
         const io = req.app.get("io");
         if (io) {
@@ -122,7 +108,6 @@ export class MessageController {
     }
   }
 
-  // Đánh dấu tin nhắn đã đọc
   async markAsRead(req: Request, res: Response): Promise<void> {
     try {
       if (!req.user?._id) {
@@ -139,7 +124,6 @@ export class MessageController {
         return;
       }
 
-      // Kiểm tra xem người dùng đã đọc tin nhắn chưa
       const alreadyRead = message.readBy.some(
         (read) => read.user.toString() === userId.toString()
       );
@@ -149,7 +133,6 @@ export class MessageController {
         return;
       }
 
-      // Thêm người dùng vào danh sách đã đọc
       await Message.updateOne(
         { _id: messageId },
         {
@@ -162,7 +145,6 @@ export class MessageController {
         }
       );
 
-      // Emit socket event
       req.app
         .get("io")
         .to(message.conversation.toString())
@@ -177,7 +159,6 @@ export class MessageController {
     }
   }
 
-  // Xóa tin nhắn
   async deleteMessage(req: Request, res: Response): Promise<void> {
     try {
       if (!req.user?._id) {
@@ -194,7 +175,6 @@ export class MessageController {
         return;
       }
 
-      // Kiểm tra xem người dùng có quyền xóa tin nhắn không
       if (message.sender.toString() !== userId.toString()) {
         res.status(403).json({ message: "Not authorized" });
         return;
@@ -205,10 +185,8 @@ export class MessageController {
       message.deletedBy = userId;
       await message.save();
 
-      // Kiểm tra và cập nhật lastMessage của conversation
       const conversation = await Conversation.findById(message.conversation);
       if (conversation && conversation.lastMessage?.toString() === messageId) {
-        // Tìm tin nhắn cuối cùng chưa bị xóa
         const lastMessage = (await Message.findOne({
           conversation: message.conversation,
           isDeleted: false,
@@ -216,12 +194,10 @@ export class MessageController {
           .sort({ createdAt: -1 })
           .lean()) as (IMessage & { _id: mongoose.Types.ObjectId }) | null;
 
-        // Cập nhật lastMessage của conversation
         conversation.lastMessage = lastMessage ? lastMessage._id : undefined;
         await conversation.save();
       }
 
-      // Emit socket event
       try {
         const io = req.app.get("io");
         if (io) {
@@ -232,7 +208,6 @@ export class MessageController {
         }
       } catch (socketError) {
         console.error("Socket error:", socketError);
-        // Không throw error vì tin nhắn đã được xóa thành công
       }
 
       res.json({ message: "Message deleted" });
@@ -245,7 +220,6 @@ export class MessageController {
     }
   }
 
-  // Chỉnh sửa tin nhắn
   async editMessage(req: Request, res: Response): Promise<void> {
     try {
       if (!req.user?._id) {
@@ -263,13 +237,11 @@ export class MessageController {
         return;
       }
 
-      // Kiểm tra xem người dùng có quyền chỉnh sửa tin nhắn không
       if (message.sender.toString() !== userId.toString()) {
         res.status(403).json({ message: "Not authorized" });
         return;
       }
 
-      // Lưu lịch sử chỉnh sửa
       message.editHistory.push({
         content: message.content,
         editedAt: new Date(),
@@ -280,7 +252,6 @@ export class MessageController {
       message.isEdited = true;
       await message.save();
 
-      // Emit socket event
       req.app
         .get("io")
         .to(message.conversation.toString())
@@ -313,7 +284,6 @@ export class MessageController {
         return;
       }
 
-      // Kiểm tra xem người dùng đã phản ứng chưa
       const existingReaction = message.reactions.find(
         (reaction) => reaction.user.toString() === userId.toString()
       );
@@ -330,7 +300,6 @@ export class MessageController {
 
       await message.save();
 
-      // Emit socket event
       req.app
         .get("io")
         .to(message.conversation.toString())
@@ -363,15 +332,12 @@ export class MessageController {
         res.status(404).json({ message: "Message not found" });
         return;
       }
-
-      // Xóa phản ứng
       message.reactions = message.reactions.filter(
         (reaction) => reaction.user.toString() !== userId.toString()
       );
 
       await message.save();
 
-      // Emit socket event
       req.app
         .get("io")
         .to(message.conversation.toString())
@@ -386,7 +352,6 @@ export class MessageController {
     }
   }
 
-  // Đánh dấu nhiều tin nhắn đã đọc cùng một lúc
   async markMultipleAsRead(req: Request, res: Response): Promise<void> {
     try {
       if (!req.user?._id) {
@@ -397,7 +362,6 @@ export class MessageController {
       const { messageIds, conversationId } = req.body;
       const userId = req.user._id;
 
-      // Validate input
       if (!Array.isArray(messageIds) || messageIds.length === 0) {
         res
           .status(400)
@@ -410,7 +374,6 @@ export class MessageController {
         return;
       }
 
-      // Verify user is part of the conversation
       const conversation = await Conversation.findOne({
         _id: conversationId,
         "participants.user": userId,
@@ -423,7 +386,6 @@ export class MessageController {
         return;
       }
 
-      // Find all messages that match the IDs and haven't been read by this user
       const messages = await Message.find({
         _id: { $in: messageIds },
         conversation: conversationId,
@@ -438,10 +400,8 @@ export class MessageController {
         return;
       }
 
-      // Lấy danh sách ID tin nhắn được cập nhật
       const updatedMessageIds = messages.map((message) => message._id);
 
-      // Sử dụng $addToSet thay vì $push để đảm bảo không có trùng lặp
       const updateOperations = messages.map((message) => ({
         updateOne: {
           filter: { _id: message._id },
@@ -458,8 +418,6 @@ export class MessageController {
 
       const result = await Message.bulkWrite(updateOperations);
 
-      // Update the lastReadMessage in the conversation for this user
-      // Find the most recent message ID from the marked messages
       const messageIdList = messages.map((msg) => msg._id);
       const latestMessage = await Message.findOne({
         _id: { $in: messageIdList },
@@ -477,7 +435,6 @@ export class MessageController {
         );
       }
 
-      // Cập nhật unreadCount trong conversation
       await Conversation.updateOne(
         {
           _id: conversationId,
@@ -488,7 +445,6 @@ export class MessageController {
         }
       );
 
-      // Thông báo cho tất cả người dùng trong cuộc trò chuyện
       try {
         const io = req.app.get("io");
         if (io) {
@@ -502,7 +458,6 @@ export class MessageController {
         }
       } catch (socketError) {
         console.error("Socket error:", socketError);
-        // Không throw error vì tin nhắn đã được đánh dấu đã đọc thành công
       }
 
       res.status(200).json({

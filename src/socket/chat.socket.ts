@@ -1,7 +1,5 @@
 import { Server as SocketIOServer } from "socket.io";
 import { Server as HTTPServer } from "http";
-import { IMessage } from "../models/message.models";
-import { IConversation } from "../models/conversation.models";
 import { Message } from "../models/message.models";
 import { Conversation } from "../models/conversation.models";
 import { verifySocketToken } from "../middleware/verifyToken";
@@ -143,6 +141,14 @@ class ChatSocket {
       socket.on("disconnect", () => {
         this.handleDisconnect(socket);
       });
+
+      socket.on("call:offer", (data) => this.handleCallOffer(socket, data));
+      socket.on("call:answer", (data) => this.handleCallAnswer(socket, data));
+      socket.on("call:ice-candidate", (data) =>
+        this.handleIceCandidate(socket, data)
+      );
+      socket.on("call:reject", (data) => this.handleCallReject(socket, data));
+      socket.on("call:end", (data) => this.handleCallEnd(socket, data));
     });
   }
 
@@ -388,6 +394,268 @@ class ChatSocket {
       userId,
       conversationId: data.conversationId,
     });
+  }
+
+  // Xử lý cuộc gọi video
+  private async handleCallOffer(
+    socket: any,
+    data: {
+      to: string;
+      offer: RTCSessionDescriptionInit;
+      conversationId: string;
+    }
+  ) {
+    try {
+      const { offer, conversationId } = data;
+      const userId = socket.data.userId;
+
+      const conversation = await Conversation.findById(conversationId).populate(
+        "participants.user",
+        "username avatar status"
+      );
+
+      console.log("Conversation ---:", conversation);
+
+      if (!conversation) {
+        throw new Error("Conversation not found");
+      }
+
+      // Lấy thông tin người gọi
+      const caller = await UserModel.findById(userId).select("username avatar");
+
+      console.log("Caller info ---", caller);
+
+      // Gửi offer cho tất cả người nhận (trừ người gọi)
+      for (const participant of conversation.participants) {
+        const participantId = participant.user._id.toString();
+        if (participantId !== userId) {
+          const recipientSocket = this.connectedUsers.get(participantId);
+          if (recipientSocket) {
+            console.log("Sending call offer to:", participantId);
+            this.io.to(recipientSocket.socketId).emit("call:offer", {
+              from: userId,
+              offer,
+              callerInfo: {
+                name: caller?.username,
+                avatar: caller?.avatar,
+              },
+              groupInfo:
+                conversation.type === "group"
+                  ? {
+                      name: conversation.name || "Group Chat",
+                      avatar: conversation.avatar,
+                      type: conversation.type,
+                    }
+                  : undefined,
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error handling call offer:", error);
+      socket.emit("error", { message: "Failed to handle call offer" });
+    }
+  }
+
+  private handleCallAnswer(
+    socket: any,
+    data: { to: string; answer: RTCSessionDescriptionInit }
+  ) {
+    const targetSocket = this.connectedUsers.get(data.to);
+    if (targetSocket) {
+      this.io.to(targetSocket.socketId).emit("call:answer", {
+        from: socket.data.userId,
+        answer: data.answer,
+      });
+    }
+  }
+
+  private handleIceCandidate(
+    socket: any,
+    data: { to: string; candidate: RTCIceCandidateInit }
+  ) {
+    const targetSocket = this.connectedUsers.get(data.to);
+    if (targetSocket) {
+      this.io.to(targetSocket.socketId).emit("call:ice-candidate", {
+        from: socket.data.userId,
+        candidate: data.candidate,
+      });
+    }
+  }
+
+  private async handleCallReject(
+    socket: any,
+    data: {
+      to: string;
+      conversationId: string;
+    }
+  ) {
+    try {
+      const { to, conversationId } = data;
+      const userId = socket.data.userId;
+
+      // 1. Gửi sự kiện từ chối đến người gọi
+      const callerSocket = this.connectedUsers.get(to);
+      if (callerSocket) {
+        this.io.to(callerSocket.socketId).emit("call:rejected", {
+          from: userId,
+          conversationId,
+        });
+      }
+
+      // 2. Tạo tin nhắn cuộc gọi bị từ chối
+      const callMessage = new Message({
+        conversation: conversationId,
+        sender: userId,
+        type: "call",
+        content: {
+          call: {
+            type: "video",
+            status: "rejected", // Đánh dấu là cuộc gọi bị từ chối
+            startTime: new Date(),
+            endTime: new Date(),
+            duration: 0,
+          },
+        },
+        readBy: [{ user: userId, readAt: new Date() }],
+      });
+
+      console.log("Call message to be saved ----", callMessage);
+      await callMessage.save();
+      await callMessage.populate([
+        { path: "sender", select: "username avatar" },
+        { path: "readBy.user", select: "username avatar" },
+      ]);
+
+      // 3. Cập nhật conversation với tin nhắn mới nhất
+      const updatedConversation = await Conversation.findByIdAndUpdate(
+        conversationId,
+        {
+          lastMessage: callMessage._id,
+          $inc: { "unreadCount.$[elem].count": 1 },
+        },
+        {
+          arrayFilters: [{ "elem.user": { $ne: userId } }],
+          new: true,
+        }
+      ).populate([
+        { path: "lastMessage" },
+        { path: "participants.user", select: "username avatar status" },
+      ]);
+
+      // 4. Gửi tin nhắn và cập nhật conversation cho tất cả người tham gia
+      if (updatedConversation) {
+        updatedConversation.participants.forEach((participant: any) => {
+          const participantId = participant.user._id.toString();
+          const participantSocket = this.connectedUsers.get(participantId);
+          if (participantSocket) {
+            // Gửi tin nhắn mới
+            this.io.to(participantSocket.socketId).emit("message:new", {
+              message: callMessage,
+              conversationId,
+            });
+
+            // Gửi cập nhật conversation
+            this.io
+              .to(participantSocket.socketId)
+              .emit("conversation:updated", {
+                conversation: updatedConversation,
+              });
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Error handling call reject:", error);
+      socket.emit("error", { message: "Failed to handle call reject" });
+    }
+  }
+
+  private async handleCallEnd(
+    socket: any,
+    data: { to: string; conversationId: string; duration: number }
+  ) {
+    try {
+      const { conversationId, duration } = data;
+      const userId = socket.data.userId;
+
+      // Lấy thông tin conversation trước khi sử dụng
+      const conversation = await Conversation.findById(conversationId).populate(
+        "participants.user",
+        "username avatar status"
+      );
+
+      if (!conversation) {
+        throw new Error("Conversation not found");
+      }
+
+      // Tạo tin nhắn cuộc gọi
+      const callMessage = new Message({
+        conversation: conversationId,
+        sender: userId,
+        type: "call",
+        content: {
+          call: {
+            duration,
+            type: "video",
+            status: "ended",
+            startTime: new Date(Date.now() - duration * 1000),
+            endTime: new Date(),
+          },
+        },
+        readBy: [{ user: userId, readAt: new Date() }],
+      });
+
+      await callMessage.save();
+      await callMessage.populate([
+        { path: "sender", select: "username avatar" },
+        { path: "readBy.user", select: "username avatar" },
+      ]);
+
+      // Cập nhật conversation
+      const updatedConversation = await Conversation.findByIdAndUpdate(
+        conversationId,
+        {
+          lastMessage: callMessage._id,
+          $inc: { "unreadCount.$[elem].count": 1 },
+        },
+        {
+          arrayFilters: [{ "elem.user": { $ne: userId } }],
+          new: true,
+        }
+      ).populate([
+        { path: "lastMessage" },
+        { path: "participants.user", select: "username avatar status" },
+      ]);
+
+      // Gửi tin nhắn mới cho tất cả trong room
+      const room = `conversation:${conversationId}`;
+      this.io.to(room).emit("message:new", {
+        message: callMessage,
+        conversationId,
+      });
+
+      // Gửi các sự kiện cho từng người tham gia
+      conversation.participants.forEach((participant: any) => {
+        const participantId = participant.user._id.toString();
+        const participantSocket = this.connectedUsers.get(participantId);
+        if (participantSocket) {
+          // Gửi sự kiện kết thúc cuộc gọi
+          this.io.to(participantSocket.socketId).emit("call:ended");
+
+          // Gửi cập nhật conversation
+          if (updatedConversation) {
+            this.io
+              .to(participantSocket.socketId)
+              .emit("conversation:updated", {
+                conversation: updatedConversation,
+              });
+          }
+        }
+      });
+    } catch (error) {
+      console.error("Error handling call end:", error);
+      socket.emit("error", { message: "Failed to handle call end" });
+    }
   }
 }
 

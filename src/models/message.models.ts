@@ -69,7 +69,7 @@ export interface IMessage extends Document {
     call?: {
       // Thông tin cuộc gọi
       type: "voice" | "video"; // Loại cuộc gọi
-      status: "missed" | "answered" | "rejected" | "busy"; // Trạng thái
+      status: "missed" | "ended" | "rejected" | "ongoing"; // Trạng thái
       duration?: number; // Thời lượng
       startTime: Date; // Thời gian bắt đầu
       endTime?: Date; // Thời gian kết thúc
@@ -252,7 +252,7 @@ const MessageSchema: Schema<IMessage> = new mongoose.Schema(
         },
         status: {
           type: String,
-          enum: ["missed", "answered", "rejected", "busy"],
+          enum: ["missed", "ended", "rejected", "ongoing"],
           required: function () {
             return this.type === "call";
           },
